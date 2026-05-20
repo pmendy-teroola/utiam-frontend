@@ -3,7 +3,6 @@
  * Gestion login / logout / session utilisateur.
  * Dépendances : core/api.js
  */
-
 let currentUser = JSON.parse(localStorage.getItem('utiam_user') || 'null');
 
 async function authLogin() {
@@ -11,7 +10,6 @@ async function authLogin() {
   const password = document.getElementById('login-password').value;
   const err      = document.getElementById('login-error');
   err.classList.add('hidden');
-
   const data = await api('POST', '/api/auth/login', { email, password });
   if (data && data.token) {
     localStorage.setItem('utiam_token', data.token);
@@ -30,11 +28,14 @@ function authLogout() {
   currentUser = null;
   document.getElementById('login-screen').style.display = '';
   document.getElementById('login-screen').classList.remove('hidden');
+  document.getElementById('app-screen').classList.add('hidden');
   document.getElementById('app-screen').style.display = 'none';
 }
 
 function authShowApp() {
+  document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app-screen').classList.remove('hidden');
   document.getElementById('app-screen').style.display = 'flex';
   document.getElementById('user-name').textContent    = currentUser.display_name;
   document.getElementById('user-role').textContent    = currentUser.role;
