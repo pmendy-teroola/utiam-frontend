@@ -1,5 +1,7 @@
 /**
- * modules/products.js — U TIAM POS — Charte KANIENE dark
+ * modules/products.js — U TIAM POS
+ * Charte KANIENE — thème sombre
+ * Avec scan code-barres (douchette + camera)
  */
 let productsList   = [];
 let categoriesList = [];
@@ -17,7 +19,16 @@ async function renderProducts(main) {
       </div>
       <div id="products-alerts"></div>
       <div class="card" style="padding:14px 18px;margin-bottom:16px">
-        <input id="products-search" type="text" placeholder="Rechercher par nom, marque, code-barres..." class="input" style="background:var(--bg-elevated)" oninput="productsFilterList()" />
+        <div style="display:flex;gap:10px">
+          <input id="products-search" type="text" placeholder="Rechercher par nom, marque, code-barres..." class="input" style="background:var(--bg-elevated);flex:1" oninput="productsFilterList()" />
+          <button class="btn btn-secondary" onclick="productsScanCamera()" title="Scanner avec la camera">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            Scanner
+          </button>
+        </div>
+        <div style="color:var(--text-muted);font-size:12px;margin-top:8px">
+          Astuce : branchez une douchette, le scan remplira automatiquement la recherche.
+        </div>
       </div>
       <div class="card" style="padding:0;overflow:hidden">
         <div id="products-list" style="overflow-x:auto">
@@ -30,11 +41,17 @@ async function renderProducts(main) {
         <div class="modal-title" id="products-modal-title">Nouveau produit</div>
         <div class="form-grid">
           <div class="full"><label class="form-label">Nom *</label><input id="pf-name" type="text" class="input" placeholder="Ex : Riz parfume 1kg" /></div>
-          <div><label class="form-label">Code-barres</label><input id="pf-barcode" type="text" class="input" placeholder="EAN13 ou interne" /></div>
+          <div class="full">
+            <label class="form-label">Code-barres</label>
+            <div style="display:flex;gap:8px">
+              <input id="pf-barcode" type="text" class="input" placeholder="EAN13 ou interne" style="flex:1" />
+              <button class="btn btn-secondary" onclick="productsScanForForm()" title="Scanner avec la camera">📷</button>
+            </div>
+          </div>
           <div><label class="form-label">Categorie</label><select id="pf-category" class="input"></select></div>
+          <div><label class="form-label">Marque</label><input id="pf-brand" type="text" class="input" placeholder="Ex : Nestle" /></div>
           <div><label class="form-label">Prix achat (FCFA)</label><input id="pf-buy-price" type="number" min="0" class="input" placeholder="0" /></div>
           <div><label class="form-label">Prix vente (FCFA) *</label><input id="pf-sell-price" type="number" min="0" class="input" placeholder="0" /></div>
-          <div><label class="form-label">Marque</label><input id="pf-brand" type="text" class="input" placeholder="Ex : Nestle" /></div>
           <div><label class="form-label">Unite</label><select id="pf-unit" class="input"><option value="pcs">Piece (pcs)</option><option value="kg">Kilogramme (kg)</option><option value="g">Gramme (g)</option><option value="L">Litre (L)</option><option value="cl">Centilitre (cl)</option><option value="sachet">Sachet</option><option value="boite">Boite</option><option value="carton">Carton</option></select></div>
           <div><label class="form-label">Stock actuel</label><input id="pf-stock" type="number" min="0" class="input" placeholder="0" /></div>
           <div><label class="form-label">Stock minimum</label><input id="pf-min-stock" type="number" min="0" class="input" placeholder="5" /></div>
@@ -48,9 +65,39 @@ async function renderProducts(main) {
         </div>
       </div>
     </div>`;
+
+  // Active la douchette quand on est sur la page Produits
+  scannerStartListening(productsOnScan);
   await productsLoad();
 }
 
+// ── SCAN HANDLERS ──────────────────────────────────────
+function productsOnScan(barcode) {
+  // Si le formulaire est ouvert, remplit le champ
+  const modal = document.getElementById('products-modal');
+  if (modal && !modal.classList.contains('hidden')) {
+    document.getElementById('pf-barcode').value = barcode;
+    return;
+  }
+  // Sinon, lance la recherche
+  const search = document.getElementById('products-search');
+  if (search) {
+    search.value = barcode;
+    productsFilterList();
+  }
+}
+
+function productsScanCamera() {
+  scannerOpenCamera(productsOnScan);
+}
+
+function productsScanForForm() {
+  scannerOpenCamera((barcode) => {
+    document.getElementById('pf-barcode').value = barcode;
+  });
+}
+
+// ── LOAD & RENDER ──────────────────────────────────────
 async function productsLoad() {
   const [products, categories] = await Promise.all([api('GET','/api/products'), api('GET','/api/categories')]);
   productsList   = products   || [];
