@@ -6,7 +6,7 @@
 let productsList    = [];
 let categoriesList  = [];
 let productsEditId  = null;
-let productsImages  = [];   // images du produit en cours d'edition
+let productsImages  = [];
 
 async function renderProducts(main) {
   main.innerHTML = `
@@ -42,7 +42,6 @@ async function renderProducts(main) {
       <div class="modal-box">
         <div class="modal-title" id="products-modal-title">Nouveau produit</div>
 
-        <!-- ETAPE 1 : Champs du produit -->
         <div id="products-form-step1">
           <div class="form-grid">
             <div class="full"><label class="form-label">Nom *</label><input id="pf-name" type="text" class="input" placeholder="Ex : Riz parfume 1kg" /></div>
@@ -64,7 +63,6 @@ async function renderProducts(main) {
           </div>
         </div>
 
-        <!-- ETAPE 2 : Galerie d'images (visible apres enregistrement) -->
         <div id="products-form-step2" style="margin-top:24px;display:none">
           <div style="font-size:14px;font-weight:700;margin-bottom:12px;color:var(--text-primary)">
             Galerie d'images
@@ -146,9 +144,13 @@ function productsRenderRow(p) {
   if (stock===0)      { bc='badge-danger';  bl='Rupture'; }
   else if(stock<=min) { bc='badge-warning'; bl='Stock bas'; }
   else                { bc='badge-success'; bl='En stock'; }
-  const img = p.image_url
-    ? '<img src="'+p.image_url+'" style="width:36px;height:36px;border-radius:8px;object-fit:cover;border:1px solid var(--border)" onerror="this.style.display=\'none\'" />'
+
+  // Utilise primary_image_url (de la galerie) en priorite, sinon image_url (ancien champ)
+  const imageSrc = p.primary_image_url || p.image_url;
+  const img = imageSrc
+    ? '<img src="'+imageSrc+'" style="width:36px;height:36px;border-radius:8px;object-fit:cover;border:1px solid var(--border)" onerror="this.style.display=\'none\'" />'
     : '<div style="width:36px;height:36px;border-radius:8px;background:var(--bg-elevated);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:var(--accent)">'+(p.name?p.name[0].toUpperCase():'?')+'</div>';
+
   return '<tr>'
     +'<td>'+img+'</td>'
     +'<td><div style="font-weight:600">'+p.name+'</div><div style="font-size:12px;color:var(--text-muted)">'+(p.barcode||'')+(p.brand?' · '+p.brand:'')+'</div></td>'
@@ -188,14 +190,18 @@ function productsOpenForm(product) {
   document.getElementById('pf-expiry').value     = product&&product.expiry_date?product.expiry_date.split('T')[0]:'';
 
   document.getElementById('products-form-error').classList.add('hidden');
-  document.getElementById('products-submit-btn').textContent = product ? 'Mettre a jour' : 'Enregistrer';
 
-  // Si modification, afficher la galerie immediatement
   if (product) {
+    // Mode modification : galerie visible + bouton Fermer
     document.getElementById('products-form-step2').style.display = 'block';
+    document.getElementById('products-submit-btn').textContent = 'Mettre a jour';
+    document.getElementById('products-cancel-btn').textContent = 'Fermer';
     productsLoadGallery(product.id);
   } else {
+    // Mode creation : galerie cachee + bouton Annuler
     document.getElementById('products-form-step2').style.display = 'none';
+    document.getElementById('products-submit-btn').textContent = 'Enregistrer';
+    document.getElementById('products-cancel-btn').textContent = 'Annuler';
     productsImages = [];
   }
 
@@ -206,7 +212,7 @@ function productsCloseForm() {
   document.getElementById('products-modal').classList.add('hidden');
   productsEditId = null;
   productsImages = [];
-  productsLoad();  // recharge la liste pour voir les nouvelles images
+  productsLoad();
 }
 
 // ── GALERIE ────────────────────────────────────────────
@@ -272,7 +278,7 @@ async function productsUploadImage(event) {
     status.style.color = 'var(--danger)';
   }
 
-  event.target.value = '';  // reset input pour permettre le re-upload du meme fichier
+  event.target.value = '';
 }
 
 async function productsSetPrimary(imageId) {
@@ -304,7 +310,7 @@ async function productsSubmitForm() {
     stock:Number(document.getElementById('pf-stock').value)||0,
     min_stock:Number(document.getElementById('pf-min-stock').value)||5,
     expiry_date:document.getElementById('pf-expiry').value||null,
-    image_url:null,  // gere par la galerie maintenant
+    image_url:null,
   };
 
   const btn=document.getElementById('products-submit-btn');
@@ -317,13 +323,13 @@ async function productsSubmitForm() {
   btn.disabled=false;
 
   if(result&&result.id){
-    // Si c'etait une creation, on bascule en mode edition + on affiche la galerie
     if (!productsEditId) {
+      // Mode creation -> on bascule en mode "post-creation"
       productsEditId = result.id;
       document.getElementById('products-modal-title').textContent = 'Produit cree — ajoutez des images';
       document.getElementById('products-form-step2').style.display = 'block';
       btn.textContent = 'Mettre a jour';
-      document.getElementById('products-cancel-btn').textContent = 'Terminer';
+      document.getElementById('products-cancel-btn').textContent = 'Fermer';
       productsImages = [];
       productsRenderGallery();
 
