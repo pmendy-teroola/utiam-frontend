@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>U TIAM — Point de Vente</title>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <style>
     :root {
       --bg-main:     #0d0d0d;
@@ -22,9 +23,9 @@
       --danger:  #e74c3c;
       --info:    #3498db;
     }
-
+ 
     * { box-sizing: border-box; margin: 0; padding: 0; }
-
+ 
     body {
       background: var(--bg-main);
       color: var(--text-primary);
@@ -32,7 +33,7 @@
       font-size: 14px;
       min-height: 100vh;
     }
-
+ 
     /* ── BUTTONS ── */
     .btn {
       display: inline-flex; align-items: center; gap: 6px;
@@ -48,7 +49,7 @@
     .btn-edit     { background: transparent; color: var(--accent); border: 1px solid #3a3000; padding: 5px 12px; font-size: 12px; }
     .btn-edit:hover     { background: #2a2000; }
     .btn-sm { padding: 6px 14px; font-size: 12px; }
-
+ 
     /* ── INPUTS ── */
     .input {
       background: var(--bg-elevated); border: 1px solid var(--border);
@@ -58,9 +59,9 @@
     }
     .input:focus { outline: none; border-color: var(--accent); }
     .input::placeholder { color: var(--text-muted); }
-
+ 
     select.input option { background: var(--bg-elevated); }
-
+ 
     /* ── CARD ── */
     .card {
       background: var(--bg-surface);
@@ -68,7 +69,7 @@
       border-radius: 12px;
       padding: 20px 24px;
     }
-
+ 
     /* ── BADGES ── */
     .badge {
       display: inline-flex; align-items: center;
@@ -79,10 +80,10 @@
     .badge-warning { background: #2A1F05; color: var(--warning); }
     .badge-danger  { background: #2C1414; color: var(--danger);  }
     .badge-info    { background: #0D1F2D; color: var(--info);    }
-
+ 
     /* ── LAYOUT ── */
     #app-screen { display: flex; min-height: 100vh; }
-
+ 
     /* ── SIDEBAR ── */
     aside {
       width: 220px; flex-shrink: 0;
@@ -103,7 +104,7 @@
     }
     .logo-title { font-weight: 800; font-size: 16px; color: var(--text-primary); }
     .logo-sub   { font-size: 10px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em; }
-
+ 
     nav { flex: 1; padding: 12px 8px; }
     .nav-item {
       display: flex; align-items: center; gap: 10px;
@@ -118,7 +119,7 @@
     .nav-item:hover { background: #1a1a1a; color: var(--text-primary); }
     .nav-item.active { background: #1a1a1a; color: var(--accent); border-left-color: var(--accent); }
     .nav-item svg { width: 16px; height: 16px; flex-shrink: 0; }
-
+ 
     .sidebar-footer {
       padding: 12px 8px;
       border-top: 1px solid var(--border);
@@ -144,13 +145,13 @@
     }
     .btn-logout:hover { background: #1a0a0a; }
     .btn-logout svg { width: 15px; height: 15px; }
-
+ 
     /* ── MAIN ── */
     main {
       flex: 1; overflow-y: auto;
       background: var(--bg-main);
     }
-
+ 
     /* ── TOPBAR ── */
     .topbar {
       height: 56px; background: var(--bg-surface);
@@ -167,10 +168,10 @@
       font-size: 12px; color: var(--text-secondary);
     }
     .dot-green { width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
-
+ 
     /* ── PAGE CONTENT ── */
     .page { padding: 24px; }
-
+ 
     /* ── LOGIN ── */
     #login-screen {
       min-height: 100vh; display: flex;
@@ -204,7 +205,7 @@
     }
     .login-btn:hover { background: var(--accent-hover); }
     .login-error { color: var(--danger); font-size: 13px; text-align: center; margin-top: 8px; }
-
+ 
     /* ── MODAL ── */
     .modal-overlay {
       position: fixed; inset: 0;
@@ -222,13 +223,13 @@
     }
     .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 24px; }
     .modal-footer { display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px; }
-
+ 
     /* ── FORM GRID ── */
     .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     .form-grid .full { grid-column: 1 / -1; }
     .form-label { display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
     .form-error { color: var(--danger); font-size: 13px; margin-top: 16px; }
-
+ 
     /* ── TABLE ── */
     .data-table { width: 100%; border-collapse: collapse; }
     .data-table th {
@@ -241,7 +242,7 @@
     .data-table tr:last-child td { border-bottom: none; }
     .data-table tr:hover td { background: #1a1a1a; }
     .data-table tr { transition: background 0.1s; }
-
+ 
     /* ── ALERT ── */
     .alert-danger {
       background: #2C1414; border: 1px solid #5a2020;
@@ -250,17 +251,17 @@
       display: flex; align-items: center; gap: 10px;
       margin-bottom: 16px;
     }
-
+ 
     /* ── SCROLLBAR ── */
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: var(--bg-main); }
     ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
-
+ 
     .hidden { display: none !important; }
   </style>
 </head>
 <body>
-
+ 
 <!-- ── LOGIN ── -->
 <div id="login-screen">
   <div class="login-card">
@@ -280,7 +281,7 @@
     </div>
   </div>
 </div>
-
+ 
 <!-- ── APP ── -->
 <div id="app-screen" class="hidden" style="display:none">
   <aside>
@@ -312,7 +313,7 @@
       </button>
     </div>
   </aside>
-
+ 
   <main>
     <div class="topbar">
       <div class="topbar-title" id="topbar-title">—</div>
@@ -330,11 +331,12 @@
     <div id="main-content" class="page"></div>
   </main>
 </div>
-
+ 
 <!-- ── CORE ── -->
 <script src="/core/api.js"></script>
 <script src="/core/auth.js"></script>
-
+<script src="/core/scanner.js"></script>
+ 
 <!-- ── MODULES ── -->
 <script src="/modules/products.js"></script>
 <script src="/modules/pos.js"></script>
@@ -342,7 +344,7 @@
 <script src="/modules/clients.js"></script>
 <script src="/modules/reports.js"></script>
 <script src="/modules/users.js"></script>
-
+ 
 <!-- ── NAVIGATION ── -->
 <script>
 const TABS = [
@@ -353,7 +355,7 @@ const TABS = [
   { id: 'reports',  label: 'Rapports',      icon: 'bar-chart-2',   roles: ['admin','gerant'] },
   { id: 'users',    label: 'Utilisateurs',  icon: 'user-cog',      roles: ['admin'] },
 ];
-
+ 
 function buildNav() {
   const nav = document.getElementById('sidebar-nav');
   nav.innerHTML = TABS
@@ -365,8 +367,11 @@ function buildNav() {
       </button>`).join('');
   lucide.createIcons();
 }
-
+ 
 function renderTab(tab) {
+  // Arrete le scanner si on quitte la page Produits
+  if (typeof scannerStopListening === 'function') scannerStopListening();
+ 
   TABS.forEach(t => {
     const el = document.getElementById('tab-' + t.id);
     if (el) el.className = 'nav-item' + (t.id === tab ? ' active' : '');
