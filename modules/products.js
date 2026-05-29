@@ -1,16 +1,16 @@
 /**
  * modules/products.js — U TIAM POS
  * Charte KANIENE — theme sombre
- * Scan code-barres + galerie multi-images + import CSV
+ * Scan code-barres + galerie multi-images + import CSV + statut produit
  */
 let productsList    = [];
 let categoriesList  = [];
 let productsEditId  = null;
 let productsImages  = [];
+let productsFilter  = 'active';   // active | inactive | archived | all
 
 // ── IMPORT CSV STATE ──
-let importRows = [];       // { data, action, existing_id?, existing_name? }
-let importStep = 1;        // 1=upload, 2=preview, 3=done
+let importRows = [];
 
 async function renderProducts(main) {
   main.innerHTML = `
@@ -28,7 +28,18 @@ async function renderProducts(main) {
           <button class="btn btn-primary" onclick="productsOpenForm()">+ Nouveau produit</button>
         </div>
       </div>
+
       <div id="products-alerts"></div>
+
+      <!-- Filtres de statut -->
+      <div class="card" style="padding:10px 12px;margin-bottom:12px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <div style="color:var(--text-muted);font-size:12px;margin-right:6px;text-transform:uppercase;letter-spacing:0.05em">Filtre :</div>
+        <button class="btn-filter" data-filter="active"   onclick="productsSetFilter('active')">Actifs</button>
+        <button class="btn-filter" data-filter="inactive" onclick="productsSetFilter('inactive')">Inactifs</button>
+        <button class="btn-filter" data-filter="archived" onclick="productsSetFilter('archived')">Archives</button>
+        <button class="btn-filter" data-filter="all"      onclick="productsSetFilter('all')">Tous</button>
+      </div>
+
       <div class="card" style="padding:14px 18px;margin-bottom:16px">
         <div style="display:flex;gap:10px;flex-wrap:wrap">
           <input id="products-search" type="text" placeholder="Rechercher par nom, marque, code-barres..." class="input" style="background:var(--bg-elevated);flex:1;min-width:200px" oninput="productsFilterList()" />
@@ -47,6 +58,22 @@ async function renderProducts(main) {
         </div>
       </div>
     </div>
+
+    <style>
+      .btn-filter {
+        background: transparent;
+        color: var(--text-secondary);
+        border: 1px solid var(--border);
+        padding: 6px 14px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      .btn-filter:hover { background: var(--bg-elevated); color: var(--text-primary); }
+      .btn-filter.active { background: var(--accent); color: #000; border-color: var(--accent); }
+    </style>
 
     <!-- MODAL FORMULAIRE PRODUIT -->
     <div id="products-modal" class="modal-overlay hidden">
@@ -70,6 +97,14 @@ async function renderProducts(main) {
             <div><label class="form-label">Stock actuel</label><input id="pf-stock" type="number" min="0" class="input" placeholder="0" /></div>
             <div><label class="form-label">Stock minimum</label><input id="pf-min-stock" type="number" min="0" class="input" placeholder="5" /></div>
             <div><label class="form-label">Date expiration</label><input id="pf-expiry" type="date" class="input" /></div>
+            <div class="full">
+              <label class="form-label">Statut</label>
+              <select id="pf-status" class="input">
+                <option value="active">Actif (vendable en caisse)</option>
+                <option value="inactive">Inactif (masque de la caisse)</option>
+                <option value="archived">Archive</option>
+              </select>
+            </div>
           </div>
         </div>
         <div id="products-form-step2" style="margin-top:24px;display:none">
@@ -100,7 +135,21 @@ async function renderProducts(main) {
     </div>`;
 
   scannerStartListening(productsOnScan);
+  productsUpdateFilterButtons();
   await productsLoad();
+}
+
+// ── FILTRE STATUT ──
+function productsSetFilter(filter) {
+  productsFilter = filter;
+  productsUpdateFilterButtons();
+  productsLoad();
+}
+
+function productsUpdateFilterButtons() {
+  document.querySelectorAll('.btn-filter').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.filter === productsFilter);
+  });
 }
 
 // ── SCAN HANDLERS ──────────────────────────────────────
@@ -118,16 +167,28 @@ function productsScanForForm() { scannerOpenCamera((b) => { document.getElementB
 
 // ── LOAD & RENDER ──────────────────────────────────────
 async function productsLoad() {
-  const [products, categories] = await Promise.all([api('GET','/api/products'), api('GET','/api/categories')]);
+  const [products, categories] = await Promise.all([
+    api('GET','/api/products?status=' + productsFilter),
+    api('GET','/api/categories')
+  ]);
   productsList   = products   || [];
   categoriesList = categories || [];
   const c = document.getElementById('products-count');
-  if (c) c.textContent = productsList.length + ' produit' + (productsList.length>1?'s':'') + ' enregistre' + (productsList.length>1?'s':'');
+  if (c) {
+    const label = { active: 'actif', inactive: 'inactif', archived: 'archive', all: '' }[productsFilter] || '';
+    c.textContent = productsList.length + ' produit' + (productsList.length>1?'s':'') + (label ? ' ' + label + (productsList.length>1?'s':'') : '');
+  }
   productsRenderAlerts();
   productsRenderList(productsList);
 }
 
 function productsRenderAlerts() {
+  // Alertes uniquement en mode "actifs"
+  if (productsFilter !== 'active') {
+    const el = document.getElementById('products-alerts');
+    if (el) el.innerHTML = '';
+    return;
+  }
   const low = productsList.filter(p => Number(p.stock) <= Number(p.min_stock));
   const el  = document.getElementById('products-alerts');
   if (!el) return;
@@ -138,9 +199,29 @@ function productsRenderAlerts() {
 function productsRenderList(list) {
   const el = document.getElementById('products-list');
   if (!el) return;
-  if (!list.length) { el.innerHTML='<div style="padding:48px;text-align:center;color:var(--text-secondary)">Aucun produit trouve.</div>'; return; }
+  if (!list.length) {
+    const msg = {
+      active: 'Aucun produit actif.',
+      inactive: 'Aucun produit inactif.',
+      archived: 'Aucun produit archive.',
+      all: 'Aucun produit.'
+    }[productsFilter];
+    el.innerHTML='<div style="padding:48px;text-align:center;color:var(--text-secondary)">'+msg+'</div>';
+    return;
+  }
   let rows = list.map(p => productsRenderRow(p)).join('');
-  el.innerHTML = '<table class="data-table"><thead><tr><th style="width:56px">Image</th><th>Produit</th><th>Categorie</th><th>Prix vente</th><th>Prix achat</th><th>Stock</th><th>Etat</th><th style="width:130px">Actions</th></tr></thead><tbody>' + rows + '</tbody></table>';
+  const showStatusCol = productsFilter === 'all';
+  el.innerHTML = '<table class="data-table"><thead><tr>'
+    + '<th style="width:56px">Image</th>'
+    + '<th>Produit</th>'
+    + '<th>Categorie</th>'
+    + '<th>Prix vente</th>'
+    + '<th>Prix achat</th>'
+    + '<th>Stock</th>'
+    + '<th>Etat</th>'
+    + (showStatusCol ? '<th>Statut</th>' : '')
+    + '<th style="width:160px">Actions</th>'
+    + '</tr></thead><tbody>' + rows + '</tbody></table>';
 }
 
 function productsRenderRow(p) {
@@ -149,11 +230,30 @@ function productsRenderRow(p) {
   if (stock===0)      { bc='badge-danger';  bl='Rupture'; }
   else if(stock<=min) { bc='badge-warning'; bl='Stock bas'; }
   else                { bc='badge-success'; bl='En stock'; }
+
   const imageSrc = p.primary_image_url || p.image_url;
   const img = imageSrc
     ? '<img src="'+imageSrc+'" style="width:36px;height:36px;border-radius:8px;object-fit:cover;border:1px solid var(--border)" onerror="this.style.display=\'none\'" />'
     : '<div style="width:36px;height:36px;border-radius:8px;background:var(--bg-elevated);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:var(--accent)">'+(p.name?p.name[0].toUpperCase():'?')+'</div>';
-  return '<tr>'
+
+  // Badge statut
+  const statusBadge = p.status === 'inactive'
+    ? '<span class="badge badge-warning">Inactif</span>'
+    : p.status === 'archived'
+      ? '<span class="badge" style="background:#1e1e1e;color:var(--text-muted);border:1px solid var(--border)">Archive</span>'
+      : '<span class="badge badge-info">Actif</span>';
+
+  // Actions selon le statut
+  const statusActions = p.status === 'active'
+    ? `<button class="btn-status" onclick="productsChangeStatus(${p.id}, 'inactive', '${(p.name||'').replace(/'/g,'')}')" title="Desactiver">⏸</button>`
+    : p.status === 'inactive'
+      ? `<button class="btn-status" onclick="productsChangeStatus(${p.id}, 'active', '${(p.name||'').replace(/'/g,'')}')" title="Reactiver">▶</button>
+         <button class="btn-status" onclick="productsChangeStatus(${p.id}, 'archived', '${(p.name||'').replace(/'/g,'')}')" title="Archiver">📦</button>`
+      : `<button class="btn-status" onclick="productsChangeStatus(${p.id}, 'active', '${(p.name||'').replace(/'/g,'')}')" title="Restaurer">↩</button>`;
+
+  const showStatusCol = productsFilter === 'all';
+
+  return '<tr style="' + (p.status !== 'active' ? 'opacity:0.6' : '') + '">'
     +'<td>'+img+'</td>'
     +'<td><div style="font-weight:600">'+p.name+'</div><div style="font-size:12px;color:var(--text-muted)">'+(p.barcode||'')+(p.brand?' · '+p.brand:'')+'</div></td>'
     +'<td style="color:var(--text-secondary)">'+(p.category_name||'—')+'</td>'
@@ -161,8 +261,33 @@ function productsRenderRow(p) {
     +'<td style="color:var(--text-secondary)">'+(p.buy_price?Number(p.buy_price).toLocaleString('fr-FR')+' F':'—')+'</td>'
     +'<td style="font-weight:600">'+p.stock+' <span style="color:var(--text-muted);font-weight:400">'+(p.unit||'pcs')+'</span></td>'
     +'<td><span class="badge '+bc+'">'+bl+'</span></td>'
-    +'<td><div style="display:flex;gap:6px"><button class="btn btn-edit" onclick="productsOpenFormById('+p.id+')">Modifier</button><button class="btn btn-danger" onclick="productsDelete('+p.id+',\''+(p.name||'').replace(/'/g,'')+'\')">✕</button></div></td>'
+    + (showStatusCol ? '<td>'+statusBadge+'</td>' : '')
+    +'<td><div style="display:flex;gap:4px">'
+      + statusActions
+      + '<button class="btn btn-edit" onclick="productsOpenFormById('+p.id+')">Modifier</button>'
+      + '<button class="btn btn-danger" onclick="productsDelete('+p.id+',\''+(p.name||'').replace(/'/g,'')+'\')">✕</button>'
+    + '</div></td>'
     +'</tr>';
+}
+
+// Injecter le style des boutons d'action statut
+if (!document.getElementById('products-status-style')) {
+  const style = document.createElement('style');
+  style.id = 'products-status-style';
+  style.textContent = `
+    .btn-status {
+      background: transparent;
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-status:hover { background: var(--bg-elevated); color: var(--accent); border-color: var(--accent); }
+  `;
+  document.head.appendChild(style);
 }
 
 function productsFilterList() {
@@ -175,6 +300,14 @@ function productsFilterList() {
 }
 
 function productsOpenFormById(id) { const p=productsList.find(p=>p.id===id); if(p) productsOpenForm(p); }
+
+// Changement rapide de statut
+async function productsChangeStatus(id, newStatus, name) {
+  const labels = { active: 'reactiver', inactive: 'desactiver', archived: 'archiver' };
+  if (!confirm(labels[newStatus].charAt(0).toUpperCase() + labels[newStatus].slice(1) + ' "' + name + '" ?')) return;
+  await api('PUT', '/api/products/' + id + '/status', { status: newStatus });
+  await productsLoad();
+}
 
 function productsOpenForm(product) {
   productsEditId = product ? product.id : null;
@@ -190,6 +323,7 @@ function productsOpenForm(product) {
   document.getElementById('pf-stock').value      = product?(product.stock??0):0;
   document.getElementById('pf-min-stock').value  = product?(product.min_stock??5):5;
   document.getElementById('pf-expiry').value     = product&&product.expiry_date?product.expiry_date.split('T')[0]:'';
+  document.getElementById('pf-status').value     = product?(product.status||'active'):'active';
   document.getElementById('products-form-error').classList.add('hidden');
   if (product) {
     document.getElementById('products-form-step2').style.display = 'block';
@@ -292,6 +426,7 @@ async function productsSubmitForm() {
     min_stock:Number(document.getElementById('pf-min-stock').value)||5,
     expiry_date:document.getElementById('pf-expiry').value||null,
     image_url:null,
+    status:document.getElementById('pf-status').value,
   };
   const btn=document.getElementById('products-submit-btn');
   btn.textContent='Enregistrement...'; btn.disabled=true;
@@ -329,7 +464,7 @@ async function productsSubmitForm() {
 }
 
 async function productsDelete(id,name) {
-  if(!confirm('Supprimer "'+name+'" ?\nAction irreversible.')) return;
+  if(!confirm('Supprimer "'+name+'" ?\nAction irreversible. Astuce : prefere "Archiver" pour conserver l\'historique.')) return;
   await api('DELETE','/api/products/'+id);
   await productsLoad();
 }
@@ -340,7 +475,6 @@ async function productsDelete(id,name) {
 
 function productsOpenImport() {
   importRows = [];
-  importStep = 1;
   document.getElementById('import-modal').classList.remove('hidden');
   importRenderStep1();
 }
@@ -348,11 +482,9 @@ function productsOpenImport() {
 function productsCloseImport() {
   document.getElementById('import-modal').classList.add('hidden');
   importRows = [];
-  importStep = 1;
   productsLoad();
 }
 
-// ── ETAPE 1 : Upload ──
 function importRenderStep1() {
   document.getElementById('import-content').innerHTML = `
     <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:20px">
@@ -367,18 +499,13 @@ function importRenderStep1() {
         Telecharger le modele CSV
       </button>
     </div>
-
     <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:16px">
       <div style="font-weight:700;margin-bottom:8px">2. Importez votre fichier rempli</div>
       <input type="file" id="csv-file-input" accept=".csv" style="display:none" onchange="importParseCSV(event)" />
-      <button class="btn btn-primary" onclick="document.getElementById('csv-file-input').click()">
-        Choisir un fichier CSV
-      </button>
+      <button class="btn btn-primary" onclick="document.getElementById('csv-file-input').click()">Choisir un fichier CSV</button>
       <div id="csv-status" style="margin-top:12px;font-size:13px;color:var(--text-secondary)"></div>
     </div>`;
-
-  document.getElementById('import-footer').innerHTML = `
-    <button class="btn btn-secondary" onclick="productsCloseImport()">Annuler</button>`;
+  document.getElementById('import-footer').innerHTML = `<button class="btn btn-secondary" onclick="productsCloseImport()">Annuler</button>`;
 }
 
 function importDownloadTemplate() {
@@ -399,24 +526,18 @@ async function importParseCSV(event) {
   if (!file) return;
   const status = document.getElementById('csv-status');
   status.textContent = 'Lecture du fichier...'; status.style.color = 'var(--text-secondary)';
-
   try {
     const text = await file.text();
     const rows = importParseCSVText(text);
-
     if (rows.length === 0) {
       status.textContent = 'Fichier vide ou format invalide.'; status.style.color = 'var(--danger)';
       return;
     }
-
-    // Detecter doublons via barcode
     const barcodes = rows.map(r => r.barcode).filter(b => b);
     let duplicates = {};
     if (barcodes.length > 0) {
       duplicates = await api('POST', '/api/products/check-duplicates', { barcodes }) || {};
     }
-
-    // Preparer importRows
     importRows = rows.map(data => {
       const dup = data.barcode ? duplicates[data.barcode] : null;
       return {
@@ -427,30 +548,21 @@ async function importParseCSV(event) {
         isDuplicate: !!dup,
       };
     });
-
-    importStep = 2;
     importRenderStep2();
   } catch (e) {
-    status.textContent = 'Erreur de lecture : ' + e.message;
-    status.style.color = 'var(--danger)';
+    status.textContent = 'Erreur de lecture : ' + e.message; status.style.color = 'var(--danger)';
   }
 }
 
 function importParseCSVText(text) {
-  // Detection separateur (, ; ou tabulation)
   const firstLine = text.split(/\r?\n/)[0];
   let sep = ',';
   const counts = { ',': (firstLine.match(/,/g)||[]).length, ';': (firstLine.match(/;/g)||[]).length, '\t': (firstLine.match(/\t/g)||[]).length };
   if (counts[';'] > counts[',']) sep = ';';
   if (counts['\t'] > Math.max(counts[','], counts[';'])) sep = '\t';
-
   const lines = text.split(/\r?\n/).filter(l => l.trim());
   if (lines.length < 2) return [];
-
-  // Header
   const headers = importSplitCSVLine(lines[0], sep).map(h => h.trim().toLowerCase().replace(/^\ufeff/, ''));
-
-  // Mapping des colonnes francaises vers les champs internes
   const headerMap = {
     'nom': 'name',
     'code-barres': 'barcode', 'code barres': 'barcode', 'codebarres': 'barcode',
@@ -463,14 +575,8 @@ function importParseCSVText(text) {
     'stock minimum': 'min_stock', 'stock min': 'min_stock',
     'date expiration': 'expiry_date', "date d'expiration": 'expiry_date', 'expiration': 'expiry_date',
   };
-
   const fieldIndex = {};
-  headers.forEach((h, i) => {
-    const field = headerMap[h];
-    if (field) fieldIndex[field] = i;
-  });
-
-  // Parser lignes
+  headers.forEach((h, i) => { const field = headerMap[h]; if (field) fieldIndex[field] = i; });
   const result = [];
   for (let i = 1; i < lines.length; i++) {
     const cells = importSplitCSVLine(lines[i], sep);
@@ -479,12 +585,11 @@ function importParseCSVText(text) {
       const v = cells[fieldIndex[field]];
       if (v !== undefined) row[field] = v.trim();
     }
-    if (row.name) result.push(row);  // ignorer lignes vides
+    if (row.name) result.push(row);
   }
   return result;
 }
 
-// Parser une ligne CSV en respectant les guillemets
 function importSplitCSVLine(line, sep) {
   const result = [];
   let current = '';
@@ -496,21 +601,17 @@ function importSplitCSVLine(line, sep) {
       else inQuotes = !inQuotes;
     } else if (c === sep && !inQuotes) {
       result.push(current); current = '';
-    } else {
-      current += c;
-    }
+    } else current += c;
   }
   result.push(current);
   return result;
 }
 
-// ── ETAPE 2 : Apercu + resolution doublons ──
 function importRenderStep2() {
   const nbCreate = importRows.filter(r => r.action === 'create').length;
   const nbUpdate = importRows.filter(r => r.action === 'update').length;
   const nbSkip = importRows.filter(r => r.action === 'skip').length;
   const nbDup = importRows.filter(r => r.isDuplicate).length;
-
   document.getElementById('import-content').innerHTML = `
     <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:16px">
       <div style="display:flex;gap:24px;flex-wrap:wrap;font-size:13px">
@@ -521,25 +622,14 @@ function importRenderStep2() {
         ${nbDup > 0 ? `<div><strong style="color:var(--warning)">${nbDup}</strong> doublons detectes</div>` : ''}
       </div>
     </div>
-
     <div style="max-height:500px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
       <table class="data-table" style="font-size:12px">
         <thead style="position:sticky;top:0;background:var(--bg-surface);z-index:2">
-          <tr>
-            <th style="width:32px">#</th>
-            <th>Nom</th>
-            <th>Code-barres</th>
-            <th>Prix vente</th>
-            <th>Stock</th>
-            <th>Action</th>
-          </tr>
+          <tr><th style="width:32px">#</th><th>Nom</th><th>Code-barres</th><th>Prix vente</th><th>Stock</th><th>Action</th></tr>
         </thead>
-        <tbody>
-          ${importRows.map((r, i) => importRenderRowPreview(r, i)).join('')}
-        </tbody>
+        <tbody>${importRows.map((r, i) => importRenderRowPreview(r, i)).join('')}</tbody>
       </table>
     </div>`;
-
   document.getElementById('import-footer').innerHTML = `
     <button class="btn btn-secondary" onclick="importRenderStep1()">Retour</button>
     <button class="btn btn-secondary" onclick="productsCloseImport()">Annuler</button>
@@ -549,17 +639,14 @@ function importRenderStep2() {
 function importRenderRowPreview(r, i) {
   const dup = r.isDuplicate;
   const actionCell = dup
-    ? `
-      <select class="input" style="padding:4px 8px;font-size:12px" onchange="importChangeAction(${i}, this.value)">
+    ? `<select class="input" style="padding:4px 8px;font-size:12px" onchange="importChangeAction(${i}, this.value)">
         <option value="skip" ${r.action==='skip'?'selected':''}>Ignorer</option>
         <option value="update" ${r.action==='update'?'selected':''}>Mettre a jour</option>
         <option value="create" ${r.action==='create'?'selected':''}>Creer quand meme</option>
       </select>
       <div style="font-size:11px;color:var(--warning);margin-top:4px">Doublon: ${r.existing_name||''}</div>`
     : `<span style="color:var(--success);font-size:12px;font-weight:600">Creer</span>`;
-
-  return `
-    <tr style="${dup ? 'background:#2A1F05' : ''}">
+  return `<tr style="${dup ? 'background:#2A1F05' : ''}">
       <td>${i+1}</td>
       <td><div style="font-weight:600">${r.data.name||'—'}</div><div style="font-size:11px;color:var(--text-muted)">${r.data.category||''}${r.data.brand?' · '+r.data.brand:''}</div></td>
       <td style="font-family:monospace;font-size:11px">${r.data.barcode||'—'}</td>
@@ -574,19 +661,14 @@ function importChangeAction(index, action) {
   importRenderStep2();
 }
 
-// ── ETAPE 3 : Lancer import ──
 async function importDoImport() {
-  const payload = importRows
-    .filter(r => r.action !== 'skip')
-    .map(r => ({ data: r.data, action: r.action, existing_id: r.existing_id }));
-
+  const payload = importRows.filter(r => r.action !== 'skip').map(r => ({ data: r.data, action: r.action, existing_id: r.existing_id }));
   document.getElementById('import-content').innerHTML = `
     <div style="text-align:center;padding:40px">
       <div style="font-size:18px;font-weight:700;margin-bottom:12px">Import en cours...</div>
       <div style="color:var(--text-secondary);font-size:13px">Veuillez patienter, ne fermez pas cette fenetre.</div>
     </div>`;
   document.getElementById('import-footer').innerHTML = '';
-
   const report = await api('POST', '/api/products/import', { rows: payload });
   importRenderStep3(report);
 }
@@ -599,7 +681,6 @@ function importRenderStep3(report) {
       <div style="font-size:20px;font-weight:700;margin-bottom:24px;color:${errs.length === 0 ? 'var(--success)' : 'var(--warning)'}">
         Import termine
       </div>
-
       <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-bottom:20px">
         <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:14px 24px;min-width:120px">
           <div style="font-size:28px;font-weight:800;color:var(--success)">${report.created||0}</div>
@@ -619,14 +700,11 @@ function importRenderStep3(report) {
           <div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase">Erreurs</div>
         </div>` : ''}
       </div>
-
       ${errs.length > 0 ? `
       <div style="text-align:left;background:#2C1414;border:1px solid #5a2020;border-radius:8px;padding:12px 16px;max-height:200px;overflow-y:auto">
         <div style="font-weight:700;color:var(--danger);margin-bottom:8px">Erreurs detectees :</div>
         ${errs.map(e => `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">Ligne ${e.line} : ${e.error}</div>`).join('')}
       </div>` : ''}
     </div>`;
-
-  document.getElementById('import-footer').innerHTML = `
-    <button class="btn btn-primary" onclick="productsCloseImport()">Terminer</button>`;
+  document.getElementById('import-footer').innerHTML = `<button class="btn btn-primary" onclick="productsCloseImport()">Terminer</button>`;
 }
