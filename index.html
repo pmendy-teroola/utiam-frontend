@@ -429,7 +429,8 @@
 <script src="/modules/inventory.js"></script>
 <script src="/modules/clients.js"></script>
 <script src="/modules/reports.js"></script>
-<script src="/modules/users.js"></script>
+<script src="/modules/users.js"></script> 
+<script src="/modules/suppliers.js"></script>
  
 <!-- ── NAVIGATION + SIDEBAR MOBILE ── -->
 <script>
@@ -440,6 +441,7 @@ const TABS = [
   { id: 'inventory', label: 'Inventaire',    icon: 'clipboard-list',roles: ['admin','gerant'] },
   { id: 'clients',   label: 'Clients',       icon: 'users',         roles: ['admin','gerant','caissier'] },
   { id: 'reports',   label: 'Rapports',      icon: 'bar-chart-2',   roles: ['admin','gerant'] },
+  { id: 'suppliers', label: 'Fournisseurs',  icon: 'truck',         roles: ['admin','gerant'] },
   { id: 'users',     label: 'Utilisateurs',  icon: 'user-cog',      roles: ['admin'] },
 ];
  
@@ -477,6 +479,7 @@ function renderTab(tab) {
   else if (tab === 'clients')   renderClients(main);
   else if (tab === 'reports')   renderReports(main);
   else if (tab === 'users')     renderUsers(main);
+  else if (tab === 'suppliers') renderSuppliers(main);
 }
  
 // ── Sidebar mobile ──
