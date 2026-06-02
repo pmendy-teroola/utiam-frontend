@@ -426,6 +426,7 @@
 <script src="/modules/products.js"></script>
 <script src="/modules/pos.js"></script>
 <script src="/modules/stock.js"></script>
+<script src="/modules/inventory.js"></script>
 <script src="/modules/clients.js"></script>
 <script src="/modules/reports.js"></script>
 <script src="/modules/users.js"></script>
@@ -433,12 +434,13 @@
 <!-- ── NAVIGATION + SIDEBAR MOBILE ── -->
 <script>
 const TABS = [
-  { id: 'pos',      label: 'Caisse',       icon: 'shopping-cart', roles: ['admin','gerant','caissier'] },
-  { id: 'products', label: 'Produits',      icon: 'package',       roles: ['admin','gerant'] },
-  { id: 'stock',    label: 'Stock',         icon: 'layers',        roles: ['admin','gerant'] },
-  { id: 'clients',  label: 'Clients',       icon: 'users',         roles: ['admin','gerant','caissier'] },
-  { id: 'reports',  label: 'Rapports',      icon: 'bar-chart-2',   roles: ['admin','gerant'] },
-  { id: 'users',    label: 'Utilisateurs',  icon: 'user-cog',      roles: ['admin'] },
+  { id: 'pos',       label: 'Caisse',        icon: 'shopping-cart', roles: ['admin','gerant','caissier'] },
+  { id: 'products',  label: 'Produits',      icon: 'package',       roles: ['admin','gerant'] },
+  { id: 'stock',     label: 'Stock',         icon: 'layers',        roles: ['admin','gerant'] },
+  { id: 'inventory', label: 'Inventaire',    icon: 'clipboard-list',roles: ['admin','gerant'] },
+  { id: 'clients',   label: 'Clients',       icon: 'users',         roles: ['admin','gerant','caissier'] },
+  { id: 'reports',   label: 'Rapports',      icon: 'bar-chart-2',   roles: ['admin','gerant'] },
+  { id: 'users',     label: 'Utilisateurs',  icon: 'user-cog',      roles: ['admin'] },
 ];
  
 function buildNav() {
@@ -468,12 +470,13 @@ function renderTab(tab) {
   closeSidebar();
  
   const main = document.getElementById('main-content');
-  if      (tab === 'pos')      renderPOS(main);
-  else if (tab === 'products') renderProducts(main);
-  else if (tab === 'stock')    renderStock(main);
-  else if (tab === 'clients')  renderClients(main);
-  else if (tab === 'reports')  renderReports(main);
-  else if (tab === 'users')    renderUsers(main);
+  if      (tab === 'pos')       renderPOS(main);
+  else if (tab === 'products')  renderProducts(main);
+  else if (tab === 'stock')     renderStock(main);
+  else if (tab === 'inventory') renderInventory(main);
+  else if (tab === 'clients')   renderClients(main);
+  else if (tab === 'reports')   renderReports(main);
+  else if (tab === 'users')     renderUsers(main);
 }
  
 // ── Sidebar mobile ──
