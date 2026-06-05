@@ -1,7 +1,7 @@
 /**
  * modules/products.js — U TIAM POS
  * Charte KANIENE — theme sombre
- * Scan code-barres + galerie multi-images + import CSV + statut produit
+ * Scan code-barres + galerie multi-images + import CSV + statut produit + multi-fournisseurs
  */
 let productsList    = [];
 let categoriesList  = [];
@@ -11,6 +11,10 @@ let productsFilter  = 'active';   // active | inactive | archived | all
 
 // ── IMPORT CSV STATE ──
 let importRows = [];
+
+// ── FOURNISSEURS LIES AU PRODUIT EN COURS D'EDITION ──
+let productSuppliers = [];
+let productSuppliersCache = [];   // cache de la liste globale des fournisseurs actifs
 
 async function renderProducts(main) {
   main.innerHTML = `
@@ -107,6 +111,37 @@ async function renderProducts(main) {
             </div>
           </div>
         </div>
+
+        <!-- Section Fournisseurs (visible uniquement en modification) -->
+        <div id="products-form-suppliers" style="margin-top:24px;display:none">
+          <div style="font-size:14px;font-weight:700;margin-bottom:8px">Fournisseurs</div>
+          <div style="color:var(--text-muted);font-size:12px;margin-bottom:12px">
+            Liez ce produit a un ou plusieurs fournisseurs avec leur prix d'achat. ⭐ = fournisseur principal.
+          </div>
+
+          <!-- Liste des fournisseurs lies -->
+          <div id="product-suppliers-list" style="margin-bottom:12px"></div>
+
+          <!-- Ajouter un fournisseur -->
+          <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:12px">
+            <div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text-secondary)">Ajouter un fournisseur</div>
+            <div style="display:grid;grid-template-columns:2fr 1fr auto;gap:8px;align-items:end">
+              <div>
+                <select id="ps-supplier" class="input" style="padding:8px 12px;font-size:13px">
+                  <option value="">— Choisir un fournisseur —</option>
+                </select>
+              </div>
+              <div>
+                <input type="number" id="ps-price" class="input" min="0" step="50" placeholder="Prix d'achat (F)" style="padding:8px 12px;font-size:13px" />
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="productsAddSupplier()" style="padding:8px 14px">+ Ajouter</button>
+            </div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:6px">
+              💡 Le prix d'achat sera mis a jour automatiquement lors des receptions.
+            </div>
+          </div>
+        </div>
+
         <div id="products-form-step2" style="margin-top:24px;display:none">
           <div style="font-size:14px;font-weight:700;margin-bottom:12px">Galerie d'images</div>
           <div style="color:var(--text-muted);font-size:12px;margin-bottom:12px">
@@ -327,14 +362,18 @@ function productsOpenForm(product) {
   document.getElementById('products-form-error').classList.add('hidden');
   if (product) {
     document.getElementById('products-form-step2').style.display = 'block';
+    document.getElementById('products-form-suppliers').style.display = 'block';
     document.getElementById('products-submit-btn').textContent = 'Mettre a jour';
     document.getElementById('products-cancel-btn').textContent = 'Fermer';
     productsLoadGallery(product.id);
+    productsLoadSuppliers(product.id);
   } else {
     document.getElementById('products-form-step2').style.display = 'none';
+    document.getElementById('products-form-suppliers').style.display = 'none';
     document.getElementById('products-submit-btn').textContent = 'Enregistrer';
     document.getElementById('products-cancel-btn').textContent = 'Annuler';
     productsImages = [];
+    productSuppliers = [];
   }
   document.getElementById('products-modal').classList.remove('hidden');
 }
@@ -343,6 +382,7 @@ function productsCloseForm() {
   document.getElementById('products-modal').classList.add('hidden');
   productsEditId = null;
   productsImages = [];
+  productSuppliers = [];
   productsLoad();
 }
 
@@ -408,6 +448,123 @@ async function productsDeleteImage(imageId) {
   await productsLoadGallery(productsEditId);
 }
 
+// ═════════════════════════════════════════════════════════
+// ─── GESTION FOURNISSEURS DU PRODUIT ────────────────────
+// ═════════════════════════════════════════════════════════
+
+async function productsLoadSuppliers(productId) {
+  // Charger en parallele les fournisseurs lies au produit et la liste globale (actifs)
+  const [linked, all] = await Promise.all([
+    api('GET', '/api/products/' + productId + '/suppliers'),
+    api('GET', '/api/suppliers'),  // actifs uniquement par defaut
+  ]);
+  productSuppliers = linked || [];
+  productSuppliersCache = all || [];
+  productsRenderSuppliers();
+  productsRenderSupplierSelector();
+}
+
+function productsRenderSuppliers() {
+  const el = document.getElementById('product-suppliers-list');
+  if (!el) return;
+  if (productSuppliers.length === 0) {
+    el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px;border:1px dashed var(--border);border-radius:8px">Aucun fournisseur lie a ce produit.</div>';
+    return;
+  }
+  el.innerHTML = `
+    <table class="data-table" style="border:1px solid var(--border);border-radius:8px;overflow:hidden">
+      <thead>
+        <tr>
+          <th>Fournisseur</th>
+          <th style="text-align:right">Prix d'achat</th>
+          <th style="text-align:center;width:80px">Principal</th>
+          <th style="width:80px">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${productSuppliers.map(ps => `
+          <tr>
+            <td>
+              <div style="font-weight:600">${ps.supplier_name}${!ps.is_active ? ' <span style="font-size:10px;color:var(--text-muted);font-weight:400">(desactive)</span>' : ''}</div>
+              ${ps.phone ? `<div style="font-size:11px;color:var(--text-muted)">${ps.phone}</div>` : ''}
+            </td>
+            <td style="text-align:right;font-weight:600;color:${ps.unit_price ? 'var(--accent)' : 'var(--text-muted)'}">${ps.unit_price ? Number(ps.unit_price).toLocaleString('fr-FR') + ' F' : '—'}</td>
+            <td style="text-align:center">
+              ${ps.is_primary
+                ? '<span style="font-size:18px">⭐</span>'
+                : `<button class="btn-status" onclick="productsSetPrimarySupplier(${ps.supplier_id})" title="Definir comme principal">☆</button>`
+              }
+            </td>
+            <td>
+              <button class="btn btn-danger" onclick="productsRemoveSupplier(${ps.supplier_id},'${(ps.supplier_name||'').replace(/'/g,'')}')" title="Retirer">✕</button>
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+function productsRenderSupplierSelector() {
+  const select = document.getElementById('ps-supplier');
+  if (!select) return;
+  // Filtrer : exclure les fournisseurs deja lies
+  const linkedIds = productSuppliers.map(ps => ps.supplier_id);
+  const available = productSuppliersCache.filter(s => !linkedIds.includes(s.id));
+  select.innerHTML = '<option value="">— Choisir un fournisseur —</option>' +
+    available.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+
+  if (available.length === 0) {
+    select.innerHTML = '<option value="">— Tous les fournisseurs sont deja lies —</option>';
+    select.disabled = true;
+  } else {
+    select.disabled = false;
+  }
+}
+
+async function productsAddSupplier() {
+  const supplierId = document.getElementById('ps-supplier').value;
+  const price = Number(document.getElementById('ps-price').value) || null;
+  if (!supplierId) { alert('Veuillez choisir un fournisseur.'); return; }
+
+  const isFirst = productSuppliers.length === 0;
+  const result = await api('POST', '/api/products/' + productsEditId + '/suppliers', {
+    supplier_id: Number(supplierId),
+    unit_price: price,
+    is_primary: isFirst,  // le premier ajoute devient principal
+  });
+
+  if (result && result.id) {
+    document.getElementById('ps-supplier').value = '';
+    document.getElementById('ps-price').value = '';
+    await productsLoadSuppliers(productsEditId);
+  } else {
+    alert((result && result.error) || 'Erreur lors de l\'ajout.');
+  }
+}
+
+async function productsSetPrimarySupplier(supplierId) {
+  const result = await api('PUT', '/api/products/' + productsEditId + '/suppliers/' + supplierId + '/primary');
+  if (result && result.success) {
+    await productsLoadSuppliers(productsEditId);
+  } else {
+    alert('Erreur lors du changement.');
+  }
+}
+
+async function productsRemoveSupplier(supplierId, name) {
+  if (!confirm('Retirer "' + name + '" de ce produit ?')) return;
+  try {
+    const token = localStorage.getItem('utiam_token');
+    const res = await fetch('/api/products/' + productsEditId + '/suppliers/' + supplierId, {
+      method: 'DELETE',
+      headers: { 'Authorization': 'Bearer ' + token },
+    });
+    if (!res.ok) { alert('Erreur lors du retrait.'); return; }
+    await productsLoadSuppliers(productsEditId);
+  } catch (e) {
+    alert('Erreur reseau : ' + e.message);
+  }
+}
+
 // ── ENREGISTREMENT PRODUIT ─────────────────────────────
 async function productsSubmitForm() {
   const name=document.getElementById('pf-name').value.trim();
@@ -437,14 +594,16 @@ async function productsSubmitForm() {
   if(result&&result.id){
     if (!productsEditId) {
       productsEditId = result.id;
-      document.getElementById('products-modal-title').textContent = 'Produit cree — ajoutez des images';
+      document.getElementById('products-modal-title').textContent = 'Produit cree — ajoutez images et fournisseurs';
       document.getElementById('products-form-step2').style.display = 'block';
+      document.getElementById('products-form-suppliers').style.display = 'block';
       btn.textContent = 'Mettre a jour';
       document.getElementById('products-cancel-btn').textContent = 'Fermer';
       productsImages = []; productsRenderGallery();
+      productSuppliers = []; productsLoadSuppliers(productsEditId);
       const status = document.getElementById('pf-upload-status');
       if (status) {
-        status.textContent = 'Produit enregistre. Vous pouvez maintenant ajouter des images.';
+        status.textContent = 'Produit enregistre. Vous pouvez maintenant ajouter des images et des fournisseurs.';
         status.style.color = 'var(--success)';
         setTimeout(() => { status.textContent = ''; }, 3000);
       }
