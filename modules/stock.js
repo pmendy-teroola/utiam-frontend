@@ -6,7 +6,7 @@
  * - Vue d'ensemble : alertes (rupture / stock bas / expiration)
  * - Liste des produits avec stock actuel
  * - Reception simple (1 produit)
- * - Bon de reception (plusieurs produits)
+ * - Bon de reception (plusieurs produits) avec selecteur fournisseur + import depuis BC
  * - Ajustement manuel
  * - Historique des mouvements filtrables
  */
@@ -19,6 +19,8 @@ let stockMovementFilter = { type: '', product_id: '', from: '', to: '' };
 
 // Etat du bon de reception en cours d'edition
 let deliveryItems = [];
+let deliverySuppliers = [];     // cache fournisseurs actifs
+let deliveryAvailablePOs = [];  // BC eligibles (sent/partial) pour le fournisseur selectionne
 
 async function renderStock(main) {
   main.innerHTML = `
@@ -494,8 +496,19 @@ async function stockSubmitMovement() {
 // ── BON DE RECEPTION (multi-produits) ──
 // ═════════════════════════════════════════════════════════
 
-function stockOpenDeliveryNote() {
+// Etat lie au BC importe
+let deliveryLinkedPO = null;        // BC entier { id, reference, ... }
+let deliverySelectedSupplierId = null;
+
+async function stockOpenDeliveryNote() {
   deliveryItems = [];
+  deliveryLinkedPO = null;
+  deliverySelectedSupplierId = null;
+  deliveryAvailablePOs = [];
+
+  // Charger les fournisseurs actifs en cache
+  deliverySuppliers = await api('GET', '/api/suppliers') || [];
+
   stockRenderDeliveryForm();
   document.getElementById('stock-delivery-modal').classList.remove('hidden');
 }
@@ -505,6 +518,8 @@ function stockCloseDelivery() {
     if (!confirm('Annuler ce bon de reception ? Les lignes saisies seront perdues.')) return;
   }
   deliveryItems = [];
+  deliveryLinkedPO = null;
+  deliverySelectedSupplierId = null;
   document.getElementById('stock-delivery-modal').classList.add('hidden');
 }
 
@@ -512,18 +527,48 @@ function stockRenderDeliveryForm() {
   const totalQty = deliveryItems.reduce((s, i) => s + Number(i.quantity || 0), 0);
   const totalValue = deliveryItems.reduce((s, i) => s + (Number(i.quantity || 0) * Number(i.unit_price || 0)), 0);
 
+  // Banner BC lie (si import depuis BC)
+  const bcBanner = deliveryLinkedPO ? `
+    <div style="background:#0D1F2D;border:1px solid #1d3552;border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+      <div style="font-size:13px;color:var(--info)">
+        📋 Reception liee au BC <strong style="color:var(--accent)">${deliveryLinkedPO.reference}</strong>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="stockUnlinkPO()" style="font-size:11px">Retirer le lien</button>
+    </div>` : '';
+
   document.getElementById('stock-delivery-content').innerHTML = `
-    <!-- Infos generales -->
+    ${bcBanner}
+
+    <!-- Selecteur fournisseur + import BC -->
     <div class="form-grid" style="margin-bottom:16px">
       <div>
-        <label class="form-label">Fournisseur (optionnel)</label>
-        <input type="text" id="delivery-supplier" class="input" placeholder="Ex : SAGAM" />
+        <label class="form-label">Fournisseur</label>
+        <select class="input" id="delivery-supplier" onchange="stockOnSupplierChange()">
+          <option value="">— Aucun fournisseur —</option>
+          ${deliverySuppliers.map(s => `<option value="${s.id}" ${deliverySelectedSupplierId==s.id?'selected':''}>${s.name}</option>`).join('')}
+        </select>
       </div>
       <div>
         <label class="form-label">Motif (optionnel)</label>
         <input type="text" id="delivery-reason" class="input" placeholder="Ex : Livraison semaine 22" />
       </div>
     </div>
+
+    <!-- Zone d'import depuis BC (visible si fournisseur selectionne et BCs disponibles) -->
+    ${deliverySelectedSupplierId && deliveryAvailablePOs.length > 0 && !deliveryLinkedPO ? `
+      <div style="background:var(--bg-elevated);border:1px solid var(--accent);border-radius:8px;padding:12px;margin-bottom:16px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--accent)">
+          💡 Bons de commande disponibles pour ce fournisseur (${deliveryAvailablePOs.length})
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${deliveryAvailablePOs.map(po => `
+            <button class="btn btn-edit" onclick="stockLoadFromPO(${po.id})" style="padding:6px 12px;font-size:12px">
+              ${po.reference} — ${Number(po.total).toLocaleString('fr-FR')} F
+              <span style="font-size:10px;color:var(--text-muted);margin-left:4px">(${po.status === 'partial' ? 'partiel' : 'envoye'})</span>
+            </button>`).join('')}
+        </div>
+      </div>
+    ` : ''}
 
     <!-- Ajout de produit -->
     <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px">
@@ -588,6 +633,66 @@ function stockRenderDeliveryForm() {
     deliveryItems.length === 0 ? 'Receptionner' : `Receptionner ${deliveryItems.length} produit${deliveryItems.length>1?'s':''}`;
 }
 
+// Quand on change de fournisseur, charger ses BC en cours
+async function stockOnSupplierChange() {
+  const supplierId = document.getElementById('delivery-supplier').value;
+  deliverySelectedSupplierId = supplierId ? Number(supplierId) : null;
+
+  // Si un BC etait deja lie, on alerte avant de changer
+  if (deliveryLinkedPO && deliveryItems.length > 0) {
+    if (!confirm('Changer de fournisseur va vider la liste actuelle. Continuer ?')) {
+      // Restaurer la valeur precedente
+      document.getElementById('delivery-supplier').value = deliveryLinkedPO ? deliveryLinkedPO.supplier_id : '';
+      return;
+    }
+    deliveryItems = [];
+    deliveryLinkedPO = null;
+  }
+
+  // Charger les BC du fournisseur
+  if (supplierId) {
+    const pos = await api('GET', '/api/purchase-orders?supplier_id=' + supplierId) || [];
+    deliveryAvailablePOs = pos.filter(p => p.status === 'sent' || p.status === 'partial');
+  } else {
+    deliveryAvailablePOs = [];
+  }
+
+  stockRenderDeliveryForm();
+}
+
+// Charger les articles d'un BC dans le formulaire
+async function stockLoadFromPO(poId) {
+  if (deliveryItems.length > 0) {
+    if (!confirm('Charger ce BC va remplacer les lignes actuelles. Continuer ?')) return;
+  }
+  const po = await api('GET', '/api/purchase-orders/' + poId);
+  if (!po) { alert('Erreur lors du chargement du BC.'); return; }
+
+  deliveryLinkedPO = po;
+  // Construire les items a partir du BC (quantite restante a recevoir)
+  deliveryItems = po.items.map(item => {
+    const qOrdered = Number(item.quantity_ordered);
+    const qReceived = Number(item.quantity_received || 0);
+    const qRemaining = Math.max(0, qOrdered - qReceived);
+    const product = stockProducts.find(p => p.id === item.product_id);
+    return {
+      product_id: item.product_id,
+      product_name: item.product_name,
+      unit: product ? product.unit : (item.unit || 'pcs'),
+      quantity: qRemaining,
+      unit_price: item.unit_price,
+    };
+  }).filter(i => i.quantity > 0);
+
+  stockRenderDeliveryForm();
+}
+
+function stockUnlinkPO() {
+  if (!confirm('Retirer le lien avec le BC ? Les lignes actuelles seront conservees.')) return;
+  deliveryLinkedPO = null;
+  stockRenderDeliveryForm();
+}
+
 function stockAddDeliveryItem() {
   const productId = document.getElementById('delivery-product').value;
   const qty = Number(document.getElementById('delivery-qty').value);
@@ -628,7 +733,7 @@ function stockRemoveDeliveryItem(index) {
 
 async function stockSubmitDelivery() {
   if (deliveryItems.length === 0) return;
-  const supplier = document.getElementById('delivery-supplier').value.trim();
+  const supplierId = document.getElementById('delivery-supplier').value;
   const reason = document.getElementById('delivery-reason').value.trim();
 
   if (!confirm(`Confirmer la reception de ${deliveryItems.length} produit${deliveryItems.length>1?'s':''} ?`)) return;
@@ -636,23 +741,28 @@ async function stockSubmitDelivery() {
   const btn = document.getElementById('stock-delivery-submit');
   btn.textContent = 'Enregistrement...'; btn.disabled = true;
 
-  const result = await api('POST', '/api/stock/deliveries', {
+  const payload = {
     items: deliveryItems.map(i => ({
       product_id: i.product_id,
       quantity: i.quantity,
       unit_price: i.unit_price,
     })),
-    supplier: supplier || null,
     reason: reason || null,
-  });
+  };
+  if (supplierId) payload.supplier_id = Number(supplierId);
+  if (deliveryLinkedPO) payload.purchase_order_id = deliveryLinkedPO.id;
+
+  const result = await api('POST', '/api/stock/deliveries', payload);
 
   if (result && result.success) {
-    alert('Bon de reception enregistre.\nReference : ' + result.batch_ref);
+    alert('Bon de reception enregistre.\nReference : ' + result.batch_ref + (deliveryLinkedPO ? '\nLe statut du BC ' + deliveryLinkedPO.reference + ' a ete mis a jour.' : ''));
     deliveryItems = [];
+    deliveryLinkedPO = null;
+    deliverySelectedSupplierId = null;
     document.getElementById('stock-delivery-modal').classList.add('hidden');
     await stockLoadData();
   } else {
     btn.textContent = 'Receptionner'; btn.disabled = false;
-    alert('Erreur lors de l\'enregistrement.');
+    alert((result && result.error) || 'Erreur lors de l\'enregistrement.');
   }
 }
